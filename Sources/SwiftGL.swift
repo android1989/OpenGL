@@ -20,7 +20,6 @@
 // TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 // MATERIALS OR THE USE OR OTHER DEALINGS IN THE MATERIALS.
 
-
 public typealias GLenum = Int32
 public typealias GLboolean = Bool
 public typealias GLbitfield = UInt32
@@ -36,10 +35,10 @@ public typealias GLfloat = Float
 public typealias GLclampf = Float
 public typealias GLdouble = Double
 public typealias GLclampd = Double
-public typealias GLeglImageOES = UnsafeMutablePointer<Void>
+public typealias GLeglImageOES = UnsafeMutableRawPointer
 public typealias GLchar = Int8
 public typealias GLcharARB = Int8
-public typealias GLhandleARB = UnsafeMutablePointer<Void>
+public typealias GLhandleARB = UnsafeMutableRawPointer
 public typealias GLhalfARB = UInt16
 public typealias GLhalf = UInt16
 public typealias GLfixed = Int32
@@ -56,14 +55,14 @@ public typealias GLhalfNV = UInt16
 public typealias GLvdpauSurfaceNV = Int
 
 public typealias GLDEBUGPROC = @convention(c)
-    (GLenum, GLenum, GLuint, GLenum, GLsizei, UnsafePointer<GLchar>, UnsafePointer<Void>) -> Void
+    (GLenum, GLenum, GLuint, GLenum, GLsizei, UnsafePointer<GLchar>, UnsafeRawPointer) -> Void
 public typealias GLDEBUGPROCARB = @convention(c)
-    (GLenum, GLenum, GLuint, GLenum, GLsizei, UnsafePointer<GLchar>, UnsafePointer<Void>) -> Void
+    (GLenum, GLenum, GLuint, GLenum, GLsizei, UnsafePointer<GLchar>, UnsafeRawPointer) -> Void
 public typealias GLDEBUGPROCKHR = @convention(c)
-    (GLenum, GLenum, GLuint, GLenum, GLsizei, UnsafePointer<GLchar>, UnsafePointer<Void>) -> Void
+    (GLenum, GLenum, GLuint, GLenum, GLsizei, UnsafePointer<GLchar>, UnsafeRawPointer) -> Void
 public typealias GLDEBUGPROCAMD = @convention(c)
-    (GLuint, GLenum, GLenum, GLsizei, UnsafePointer<GLchar>, UnsafeMutablePointer<Void>) -> Void
-
+    
+    (GLuint, GLenum, GLenum, GLsizei, UnsafePointer<GLchar>, UnsafeMutableRawPointer) -> Void
 
 class CommandInfo : CustomStringConvertible {
     let name: String
@@ -77,13 +76,12 @@ class CommandInfo : CustomStringConvertible {
     }
 }
 
-@noreturn
-private func buildError(_ info: CommandInfo) -> String {
+private func buildError(info: CommandInfo) -> Never {
     var adds = ""
     var rems = ""
     var exts = ""
     for support in info.support {
-        let short = support[support.index(after: support.startIndex)..<support.endIndex]
+        let short = support[support.index(support.startIndex, offsetBy: 1)..<support.endIndex]
         if support[support.startIndex] == "+" {
             if adds.characters.count > 0 {
                 adds += ", "
@@ -117,40 +115,40 @@ private func buildError(_ info: CommandInfo) -> String {
     fatalError(s)
 }
 
-func getAddress(info: CommandInfo) -> UnsafeMutablePointer<Void> {
-    let fp = lookupAddress(info)
-    if (fp == nil) {buildError(info)}
-    return fp!
+func getAddress(_ info: CommandInfo) -> UnsafeMutableRawPointer {
+    guard let fp = lookupAddress(info: info) else {
+        buildError(info: info)
+    }
+    return fp
 }
 
 // Platform specific sections below.
 // To support a new platform, implement lookupAddress.
-
 #if os(OSX)
-
+    
     import Darwin
-
-    let openGLframework = "/System/Library/Frameworks/OpenGL.framework/Versions/Current/OpenGL"
-    var dlopenHandle : UnsafeMutablePointer<Void>? = nil
-
-    func lookupAddress(_ info: CommandInfo) -> UnsafeMutablePointer<Void>? {
+    
+let openGLframework = "/System/Library/Frameworks/OpenGL.framework/Versions/Current/OpenGL"
+var dlopenHandle: UnsafeMutableRawPointer? = nil
+    
+    func lookupAddress(info: CommandInfo) -> UnsafeMutableRawPointer? {
         if dlopenHandle == nil {
             dlopenHandle = dlopen(openGLframework, RTLD_LAZY)
         }
-        if dlopenHandle == nil {
+        guard let handle = dlopenHandle else {
             fatalError("Failed to dlopen OpenGL.framework")
         }
-        return dlsym(dlopenHandle, info.name)
+        return dlsym(handle, info.name)
     }
-
-#elseif os(Linux)
-
-    import Glibc
-
-    var dlopenHandle : UnsafeMutablePointer<Void>? = nil
-    var glXGetProcAddress:(@convention(c) (UnsafePointer<GLchar>) -> UnsafeMutablePointer<Void>)? = nil
     
-    func lookupAddress(_ info: CommandInfo) -> UnsafeMutablePointer<Void>? {
+#elseif os(Linux)
+    
+    import Glibc
+    
+var dlopenHandle = UnsafeMutablePointer<Void>()
+var glXGetProcAddress:(@convention(c) (UnsafePointer<GLchar>) -> UnsafeMutablePointer<Void>)? = nil
+    
+    func lookupAddress(info: CommandInfo) -> UnsafeMutablePointer<Void> {
         if dlopenHandle == nil {
             dlopenHandle = dlopen(nil, RTLD_LAZY | RTLD_LOCAL)
         }
@@ -160,13 +158,13 @@ func getAddress(info: CommandInfo) -> UnsafeMutablePointer<Void> {
         if glXGetProcAddress == nil {
             let fp = dlsym(dlopenHandle, "glXGetProcAddressARB")
             if fp != nil {
-                glXGetProcAddress = unsafeBitCast(fp, to: glXGetProcAddress.dynamicType)
+                glXGetProcAddress = unsafeBitCast(fp, type(of: glXGetProcAddress))
             }
         }
         if glXGetProcAddress == nil {
             let fp = dlsym(dlopenHandle, "glXGetProcAddress")
             if fp != nil {
-                glXGetProcAddress = unsafeBitCast(fp, to: glXGetProcAddress.dynamicType)
+                glXGetProcAddress = unsafeBitCast(fp, type(of: glXGetProcAddress))
             }
         }
         if glXGetProcAddress == nil {
@@ -176,9 +174,9 @@ func getAddress(info: CommandInfo) -> UnsafeMutablePointer<Void> {
     }
     
 #else
-
-    func lookupAddress(_ info: commandInfo) -> UnsafeMutablePointer<Void> {
+    
+    func lookupAddress(info: commandInfo) -> UnsafeMutablePointer<Void> {
         fatalError("Unsupported OS")
     }
-
+    
 #endif
